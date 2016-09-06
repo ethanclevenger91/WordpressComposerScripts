@@ -15,7 +15,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Ethanclevenger91\\WordpressComposerScripts\\": "src/WordpressComposerScripts"
+            "WordpressComposerScripts\\": "src/WordpressComposerScripts"
         }
     }
 }
