@@ -5,62 +5,101 @@ namespace WordpressComposerScripts;
 use Composer\Script\Event;
 use Composer\Installer\PackageEvent;
 use Symfony\Component\Console\Helper\Table;
-use Symfony\Component\Console\Output\StreamOutput;
+use Symfony\Component\Console\Output\ConsoleOutput;
 
 class Updates
 {
+    private $plugins = '';
+    private $oldPlugins = '';
+    private $updateStatuses = [];
+
+    private $headers = ['Plugin Name', 'Old Version', 'New Version'];
+
+    public function __construct()
+    {
+        $this->loadPlugins();
+        return $this;
+    }
+
     public static function preUpdateCommand(Event $event)
     {
         $composer = $event->getComposer();
-        $pluginData = json_decode(`wp plugin list --format=json`);
-        file_put_contents('plugins.tmp', json_encode($pluginData));
+        $updates = new self();
+        $updates->writePluginsToFile();
     }
 
     public static function postUpdateCommand(Event $event)
     {
         $composer = $event->getComposer();
-        $pluginData = json_decode(`wp plugin list --format=json`);
-        $oldPluginData = json_decode(file_get_contents('plugins.tmp'));
-        $tableData = self::getPluginDiff($oldPluginData, $pluginData);
+        $updates = self::withOldFile();
+        $updates->updatePluginDiff();
+        $updates->printTable();
+        $updates->deleteFile();
     }
 
-    public static function printTable($data)
+    public function loadPlugins()
     {
-        $output = new StreamOutput(fopen('php://stdout', 'w'));
+        $pluginData = json_decode(`wp plugin list --format=json`);
+        $this->plugins = $pluginData;
+    }
+
+    public function writePluginsToFile($path = 'plugins.tmp')
+    {
+        file_put_contents($path, json_encode($this->plugins));
+    }
+
+    public function deleteFile($path = 'plugins.tmp')
+    {
+        unlink($path);
+    }
+
+    public static function withOldFile($path = 'plugins.tmp')
+    {
+        $updates = new Updates();
+        $oldPluginData = json_decode(file_get_contents($path));
+        $updates->oldPlugins = $oldPluginData;
+        return $updates;
+    }
+
+    public function printTable()
+    {
+        $output = new ConsoleOutput();
         $table = new Table($output);
-        $table->setHeaders(['Plugin', 'Old Version', 'New Version']);
-        $table->setRows($data);
+        $table->setHeaders($this->headers);
+        $table->setRows($this->updateStatuses);
         $table->render();
     }
 
-    public static function getPluginDiff($oldPluginData, $newPluginData)
+    public function updatePluginDiff()
     {
         $updateInfo = [];
         $installedPlugins = [];
-        foreach ($newPluginData as $newPlugin) {
+        foreach ($this->plugins as $newPlugin) {
             $installedPlugins[$newPlugin->name] = $newPlugin->version;
-            foreach ($oldPluginData as $oldPlugin) {
-                $found = false;
+            $found = false;
+            foreach ($this->oldPlugins as $oldPlugin) {
                 if ($oldPlugin->name == $newPlugin->name) {
+                    $found = true;
                     if ($oldPlugin->version == $newPlugin->version) {
                         break;
                     }
                     $updateInfo[] = [
-              $oldPlugin->name,
-              $oldPlugin->version,
-              $newPlugin->version
-            ];
+                      $oldPlugin->name,
+                      $oldPlugin->version,
+                      $newPlugin->version
+                    ];
+                    break;
                 }
-                if (!$found) {
-                    $updateInfo[] = [
+            }
+            if (!$found) {
+                $updateInfo[] = [
               $newPlugin->name,
               'installed',
               $newPlugin->version
             ];
-                }
             }
         }
-        foreach ($oldPluginData as $oldPlugin) {
+        foreach ($this->oldPlugins as $oldPlugin) {
             if (!array_key_exists($oldPlugin->name, $installedPlugins)) {
                 $updateInfo[] = [
             $oldPlugin->name,
@@ -69,6 +108,6 @@ class Updates
           ];
             }
         }
-        return $updateInfo;
+        $this->updateStatuses = $updateInfo;
     }
 }
